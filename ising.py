@@ -1,14 +1,16 @@
-from numpy import array, inf
+from numpy import array, inf, vectorize, repeat, power
 from numpy.random import rand
 from numpy.linalg import norm
 from mpmath import hyp2f1, fp
 from numpy import abs as np_abs
+from numpy import sum as np_sum
 from numpy import conj, linspace, meshgrid, logical_and
+from functools import cache
 import gym
 from gym.envs.classic_control import rendering
 
 spins = array([0, 0, 2, 4, 6])
-ex_h = [[3/80, 3/80] for i in range(4)]
+ex_h = array([[3/80, 3/80] for i in range(4)])
 accuracy_threshold = 10**-3
 
 
@@ -32,19 +34,29 @@ def gen_pts():
     lz = llambda(z)
     z = z[logical_and(logical_and(lz < lambda_c, z.real >= 1/2), z.imag >= 0)]
     # Nz = z.size
-    pts = [[_p, conj(_p)] for _p in z]
+    pts = array([[_p, conj(_p)] for _p in z])
     return pts
 
 
 def param_to_spec(param):
-    return [[(param[2*i]+spins[i])/2, (param[2*i]-spins[i])/2, param[2*i+1]]for i in range(5)]
+    # print(param)
+    _A = param[::2]
+    _B = param[1::2]
+    output = array([(_A+spins)/2, (_A-spins)/2, _B]).transpose().flatten()
+    # print(output)
+    return output
+    # return array([[(param[2*i]+spins[i])/2, (param[2*i]-spins[i])/2, param[2*i+1]]for i in range(5)])
 
-
+@cache
 def g(h, hb, z, zb):
-    h12 = ex_h[0][0] - ex_h[1][0]
-    h34 = ex_h[2][0] - ex_h[3][0]
-    hb12 = ex_h[0][1] - ex_h[1][1]
-    hb34 = ex_h[2][1] - ex_h[3][1]
+    # h12 = ex_h[0][0] - ex_h[1][0]
+    # h34 = ex_h[2][0] - ex_h[3][0]
+    # hb12 = ex_h[0][1] - ex_h[1][1]
+    # hb34 = ex_h[2][1] - ex_h[3][1]
+    h12 = 0
+    h34 = 0
+    hb12 = 0
+    hb34 = 0
     output = (1/2 if h == hb else 1)*(z**h*zb**hb*(hyp2f1(h-h12, h+h34, 2*h, z))*(hyp2f1(hb-hb12, hb+hb34, 2*hb, zb)) +
                                     zb**h*z**hb*(hyp2f1(h-h12, h+h34, 2*h, zb))*(hyp2f1(hb-hb12, hb+hb34, 2*hb, z)))
 #     print('g=',output)
@@ -52,21 +64,30 @@ def g(h, hb, z, zb):
 
 
 def p(h, hb, c, z, zb):
-    output = c*(((z-1)*(zb-1))**(1/8)*g(h,hb,z,zb)-z**(1/8)*zb**(1/8)*g(h,hb,1-z,1-zb))
+    output = c*(power(((z-1)*(zb-1)),1/8)*g(h,hb,z,zb) - power(z,1/8)*power(zb,1/8)*g(h,hb,1-z,1-zb))
 #     print('p=',output)
     return output
 
+vec_p = vectorize(p, excluded=['z', 'zb'])
+
 
 def e(spec, pts):
-    output= [(sum([p(n[0],n[1],n[2],z[0],z[1]) for n in spec if n[0]>=n[1]]) +
-              ((z[0]-1)*(z[1]-1))**(1/8)-z[0]**(1/8)*z[1]**(1/8)) for z in pts]
+    _A = vec_p(spec[:,0], spec[:,1], spec[:,2], pts[:,0], pts[:,1])
+    _B = ((pts[:,0]-1)*(pts[:,1]-1))**(1/8)-pts[:,0]**(1/8)*pts[:1]**(1/8)
+    output = _A + repeat(_B, len(spec))
+#     output= array([(vec_p(spec[:,0], spec[:,1], spec[:,2], z[0], z[1]) +
+#               ((z[0]-1)*(z[1]-1))**(1/8)-z[0]**(1/8)*z[1]**(1/8)) for z in pts])
 #     print('e=',output)
     return output
 
 
 def e_abs(spec, pts):
-    output= [(sum(np_abs([p(n[0],n[1],n[2],z[0],z[1]) for n in spec if n[0]>=n[1]])) +
-                  ((z[0]-1)*(z[1]-1))**(1/8)-z[0]**(1/8)*z[1]**(1/8)) for z in pts]
+    # _A = vec_p(spec[:, 0], spec[:, 1], spec[:, 2], pts[:, 0], pts[:, 1])
+    # _B = ((pts[:, 0] - 1) * (pts[:, 1] - 1)) ** (1 / 8) - pts[:, 0] ** (1 / 8) * pts[:1] ** (1 / 8)
+    # output = np_abs(np_sum(_A + repeat(_B, len(spec)), axis=1))
+    # print(spec)
+    output= np_abs(array([(np_sum(vec_p(spec[::3], spec[1::3], spec[2::3], z[0], z[1])) +
+                  ((z[0]-1)*(z[1]-1))**(1/8)-z[0]**(1/8)*z[1]**(1/8)) for z in pts]))
 #     print('e_abs=',output)
     return output
 
@@ -85,11 +106,15 @@ class IsingEnv(gym.Env):
         self.observation_space = gym.spaces.Box(array([-inf for i in range(30)]),array([inf for i in range(30)]))
         self.n = 5
         self.best_reward=-inf
+        self.best_state = None
         self.pts = pts
         self.viewer = None
 
-    def reset(self):
-        self.state=rand(10)
+    def reset(self, mode='last_best'):
+        if self.best_state is None or mode == 'random':
+            self.state=rand(10)
+        else:
+            self.state = self.best_state
         return self.obs()
 
     def _next_observation(self):
@@ -100,10 +125,11 @@ class IsingEnv(gym.Env):
         done = False
         obs = self._next_observation()
 #         spec = [[(obs[2*i]+spins[i])/2, (obs[2*i]-spins[i])/2, obs[2*i+1]]for i in range(self.n)]
-        reward = -norm(self.obs())
-#         print(reward)
+        reward = -norm(obs)
+        print(reward)
         if reward>self.best_reward :
             self.best_reward = reward
+            self.best_state = self.state
             # print('best_reward=',self.best_reward)
             done=True
         info = {}
@@ -121,8 +147,8 @@ class IsingEnv(gym.Env):
     def render(self, mode="human"):
         if self.viewer is None:
             self.viewer = rendering.Viewer(500, 500)
-            self.viewer.set_bounds(-1, 1, -1, 1)
-            pt = rendering.make_circle(0.01)
+            self.viewer.set_bounds(-2, 2, -2, 2)
+            pt = rendering.make_circle(0.05)
             pt.set_color(1, 0, 0)
             self.trans = rendering.Transform()
             pt.add_attr(self.trans)
