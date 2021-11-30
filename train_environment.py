@@ -1,6 +1,7 @@
 import gym
 import numpy as np
 from numpy import array, inf
+from numpy.linalg import norm
 
 
 class TrainingEnv(gym.Env):
@@ -8,14 +9,14 @@ class TrainingEnv(gym.Env):
     Creates a general training environment that can be used with different CFTs.
     The input to the Network are the states, not the errors for the crossing equations.
     """     
-    def __init__(self, error_fn, accuracy_fn, state_dim, initial_state, 
+    def __init__(self, error_fn, accuracy_fn, state_dim, obs_dim, initial_state, 
                  min_state_bound=None, max_state_bound=None,
                  guess_mode_steps=0, trapped_steps=100, reward_cap=100, reward_scale=1.,
                  guess_size=6.5, freeze_mask=None, freeze_accuracy=0.01):
         """
         Args:
         error_fn:        function for the crossing equations to be used for penalty.
-                         Given a state as input should return ||E||.
+                         Given a state as input should return the vector E.
         accuracy_fn:     function used to compute accuracy. Given a state should return ||E||/E_{abs}
         state_dim:       integer. dimension of the array of variables to be searched.
         initial state:   array of dimension state_dim. Initial values for the variables to be searched.
@@ -28,9 +29,9 @@ class TrainingEnv(gym.Env):
         reward_cap:      float. Resets the environment when the agent finds a state with reward<reward_cap*best_reward. Should increase stability.
         reward_scale:    float. Reward is computed as -reward_scale*||E||
         guess_size:      float or array of dimension state_dim. Sets the search window at each step for the variables.
-                     If a float, the guess size is the same for all variables.
+                         If a float, the guess size is the same for all variables.
         freeze_mask:     array of dimension state_dim containing only 0 and 1. The variables corresponding to indices that are 0 are not changed
-                     until the accuracy reach the level freeze_accuracy. This is needed for training in mode 2. If None no variable is frozen,
+                         until the accuracy reach the level freeze_accuracy. This is needed for training in mode 2. If None no variable is frozen,
         freeze_accuracy: float. Value of accuracy at which all the variables are unfrozen if freeze_mask is not None
         """
         self.state_min=min_state_bound #Set minimum for the search window
@@ -51,6 +52,7 @@ class TrainingEnv(gym.Env):
         self.initial_state=initial_state
         self.error_fn=error_fn
         self.accuracy_fn=accuracy_fn
+        self.obs_dim=obs_dim
         #Setup freeze mode is a mask is passed
         if freeze_mask is not None:
                 self.freeze_mode=True      
@@ -63,14 +65,14 @@ class TrainingEnv(gym.Env):
             np.float32(array([-1. for i in range(self.state_dim)])), np.float32(array([1. for i in range(self.state_dim)]))
             )
         self.observation_space = gym.spaces.Box(
-            np.float32(array([-inf for i in range(self.state_dim)])),np.float32(array([inf for i in range(self.state_dim)]))
+            np.float32(array([-inf for i in range(self.obs_dim)])),np.float32(array([inf for i in range(self.obs_dim)]))
             )
         
     def step(self, action):
         self.step_counter+=1 #Increase step counter 
 
         if self.guess_mode:
-            current_reward=-self.error_fn(self.state)*self.scale
+            current_reward=-norm(self.error_fn(self.state))*self.scale
             
         if self.freeze_mode:#In freeze_mode freeze some of the parameters during training
             acc=self.accuracy_fn(self.state)
@@ -81,8 +83,8 @@ class TrainingEnv(gym.Env):
         self.state=self.state+action*self.guess_size #scale the action by the guess_size
         self.state = np.maximum(self.state_min, self.state)
         self.state = np.minimum(self.state_max, self.state)
-        obs=self.state
-        reward = -self.error_fn(self.state)*self.scale
+        obs=self.error_fn(self.state)
+        reward = -norm(self.error_fn(self.state))*self.scale
         
         if self.best_reward is None:
             self.best_reward=reward
@@ -135,8 +137,7 @@ class TrainingEnv(gym.Env):
             self.state=self.initial_state
         else:
             self.state=self.best_state
-        return self.state
-
+        return self.error_fn(self.state)
 
 
 
