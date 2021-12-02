@@ -7,7 +7,7 @@ from numpy.linalg import norm
 class TrainingEnv(gym.Env):
     """
     Creates a general training environment that can be used with different CFTs.
-    The input to the Network are the states, not the errors for the crossing equations.
+    The input to the Network are the errors for the crossing equations.
     """     
     def __init__(self, error_fn, accuracy_fn, state_dim, obs_dim, initial_state, 
                  min_state_bound=None, max_state_bound=None,
