@@ -10,8 +10,8 @@ from functools import cache
 import gym
 from gym.envs.classic_control import rendering
 
-spins = array([0, 0, 2, 4, 6])
-ex_h = array([[1/32, 1/32] for i in range(4)])
+spins = array([0, 0, 2, 2, 2, 4, 6])
+ex_h = array([[7/16, 7/16] for i in range(4)])
 accuracy_threshold = 10**-3
 
 
@@ -61,12 +61,12 @@ def g(h, hb, z, zb):
     output = (1/2 if h == hb else 1)*(z**h*zb**hb*(hyp2f1(h-h12, h+h34, 2*h, z))*(hyp2f1(hb-hb12, hb+hb34, 2*hb, zb)) +
                                     zb**h*z**hb*(hyp2f1(h-h12, h+h34, 2*h, zb))*(hyp2f1(hb-hb12, hb+hb34, 2*hb, z)))
 #     print('g=',output)
-    return fp.mpf(output)
+    return fp.mpc(output)
     # return output
 
 
 def p(h, hb, c, z, zb):
-    output = c*(power(((z-1)*(zb-1)),1/16)*g(h,hb,z,zb) - power(z,1/16)*power(zb,1/16)*g(h,hb,1-z,1-zb))
+    output = c*(power(((z-1)*(zb-1)),7/8)*g(h,hb,z,zb) - power(z,7/8)*power(zb,7/8)*g(h,hb,1-z,1-zb))
 #     print('p=',output)
     return output
 
@@ -75,7 +75,7 @@ vec_p = vectorize(p, excluded=['z', 'zb'])
 
 def e(spec, pts):
     _A = vec_p(spec[:,0], spec[:,1], spec[:,2], pts[:,0], pts[:,1])
-    _B = ((pts[:,0]-1)*(pts[:,1]-1))**(1/8)-pts[:,0]**(1/8)*pts[:1]**(1/8)
+    _B = ((pts[:,0]-1)*(pts[:,1]-1))**(7/8)-pts[:,0]**(7/8)*pts[:1]**(7/8)
     output = _A + repeat(_B, len(spec))
 #     output= array([(vec_p(spec[:,0], spec[:,1], spec[:,2], z[0], z[1]) +
 #               ((z[0]-1)*(z[1]-1))**(1/8)-z[0]**(1/8)*z[1]**(1/8)) for z in pts])
@@ -89,17 +89,7 @@ def e_abs(spec, pts):
     # output = np_abs(np_sum(_A + repeat(_B, len(spec)), axis=1))
     # print(spec)
     output= np_abs(array([(np_sum(vec_p(spec[::3], spec[1::3], spec[2::3], z[0], z[1])) +
-                  ((z[0]-1)*(z[1]-1))**(1/8)-z[0]**(1/8)*z[1]**(1/8)) for z in pts]))
-#     print('e_abs=',output)
-    return output
-
-def e_abs(spec, pts):
-    # _A = vec_p(spec[:, 0], spec[:, 1], spec[:, 2], pts[:, 0], pts[:, 1])
-    # _B = ((pts[:, 0] - 1) * (pts[:, 1] - 1)) ** (1 / 8) - pts[:, 0] ** (1 / 8) * pts[:1] ** (1 / 8)
-    # output = np_abs(np_sum(_A + repeat(_B, len(spec)), axis=1))
-    # print(spec)
-    output= array([(np_sum(np_abs(vec_p(spec[::3], spec[1::3], spec[2::3], z[0], z[1]))) +
-                  ((z[0]-1)*(z[1]-1))**(1/8)-z[0]**(1/8)*z[1]**(1/8)) for z in pts])
+                  ((z[0]-1)*(z[1]-1))**(7/8)-z[0]**(7/8)*z[1]**(7/8)) for z in pts]))
 #     print('e_abs=',output)
     return output
 
@@ -109,21 +99,21 @@ def A(spec,pts):
     return output
 
 
-class IsingEnv(gym.Env):
+class TriCriticalIsingEnv(gym.Env):
     metadata = {"render.modes": ["human", "rgb_array"], "video.frames_per_second": 30}
     def __init__(self, pts):
         self.state=rand(10)
-        self.action_space = gym.spaces.Box(array([-10 for i in range(10)]), array([10 for i in range(10)]))
+        self.action_space = gym.spaces.Box(array([-10 for i in range(14)]), array([10 for i in range(14)]))
         self.observation_space = gym.spaces.Box(array([-inf for i in range(30)]),array([inf for i in range(30)]))
-        self.n = 5
+        self.n = 7
         self.best_reward=-inf
         self.best_state = None
         self.pts = pts
         self.viewer = None
-        print("Best Possible Reward: ", -norm(e_abs(param_to_spec(array([4,2.44141*10**-4,1,0.25,2,0.015625,4,2.19727*10**-4,6,1.36239*10**-5])),self.pts)))
+        # print("Best Possible Reward: ", -norm(e_abs(param_to_spec(array([4,2.44141*10**-4,1,0.25,2,0.015625,4,2.19727*10**-4,6,1.36239*10**-5])),self.pts)))
     def reset(self, mode='last_best'):
         if self.best_state is None or mode == 'random':
-            self.state=rand(10)
+            self.state=rand(14)
         else:
             self.state = self.best_state
         return self.obs()
